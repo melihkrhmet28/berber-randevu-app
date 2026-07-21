@@ -45,6 +45,13 @@ class BarberDetailView(generics.RetrieveAPIView):
     serializer_class = BarberSerializer
     lookup_field = 'id'
 
+def to_datetime(target_date, time_obj, is_end=False):
+    if not time_obj:
+        return None
+    if is_end and (time_obj == datetime.time(0, 0) or time_obj == datetime.time(23, 59, 59) or time_obj == datetime.time(23, 59)):
+        return datetime.datetime.combine(target_date + datetime.timedelta(days=1), datetime.time(0, 0))
+    return datetime.datetime.combine(target_date, time_obj)
+
 class AvailableSlotsView(APIView):
     def get(self, request, pk, date_str):
         barber = get_object_or_404(Barber, pk=pk)
@@ -67,41 +74,51 @@ class AvailableSlotsView(APIView):
         breaks = BreakTime.objects.filter(schedule=schedule)
         blocked = BlockedSlot.objects.filter(barber=barber, date=target_date)
 
-        # 30 veya 60 dakikalık slotlar üret
-        slots = []
-        current_time = datetime.datetime.combine(target_date, schedule.start_time)
-        end_time = datetime.datetime.combine(target_date, schedule.end_time)
+        start_dt = to_datetime(target_date, schedule.start_time)
+        end_dt = to_datetime(target_date, schedule.end_time, is_end=True)
+        if end_dt <= start_dt:
+            end_dt += datetime.timedelta(days=1)
+
         slot_duration = datetime.timedelta(minutes=barber.slot_duration_minutes)
 
-        while current_time + slot_duration <= end_time:
-            slot_start = current_time.time()
-            slot_end = (current_time + slot_duration).time()
-            
+        slots = []
+        current_time = start_dt
+
+        while current_time + slot_duration <= end_dt:
+            slot_start_dt = current_time
+            slot_end_dt = current_time + slot_duration
+
             # Mola çakışması kontrolü
             is_break = False
             for b in breaks:
-                if not (slot_end <= b.start_time or slot_start >= b.end_time):
+                b_start = to_datetime(target_date, b.start_time)
+                b_end = to_datetime(target_date, b.end_time, is_end=True)
+                if not (slot_end_dt <= b_start or slot_start_dt >= b_end):
                     is_break = True
                     break
             
             # Kapatılmış saat kontrolü
             is_blocked = False
             for b in blocked:
-                if not (slot_end <= b.start_time or slot_start >= b.end_time):
+                b_start = to_datetime(target_date, b.start_time)
+                b_end = to_datetime(target_date, b.end_time, is_end=True)
+                if not (slot_end_dt <= b_start or slot_start_dt >= b_end):
                     is_blocked = True
                     break
 
             # Randevu çakışması kontrolü
             is_booked = False
             for appt in appointments:
-                if not (slot_end <= appt.start_time or slot_start >= appt.end_time):
+                a_start = to_datetime(target_date, appt.start_time)
+                a_end = to_datetime(target_date, appt.end_time, is_end=True)
+                if not (slot_end_dt <= a_start or slot_start_dt >= a_end):
                     is_booked = True
                     break
 
             if not is_break and not is_booked and not is_blocked:
                 slots.append({
-                    'start_time': slot_start.strftime('%H:%M'),
-                    'end_time': slot_end.strftime('%H:%M')
+                    'start_time': slot_start_dt.strftime('%H:%M'),
+                    'end_time': slot_end_dt.strftime('%H:%M')
                 })
 
             current_time += slot_duration
@@ -164,55 +181,65 @@ class DashboardCalendarAPIView(APIView):
         schedule = Schedule.objects.filter(barber=barber, day_of_week=day_of_week).first()
         breaks = BreakTime.objects.filter(schedule=schedule) if schedule else []
 
-        start_bound = datetime.time(6, 0)
-        end_bound = datetime.time(23, 0)
+        start_bound = datetime.datetime.combine(target_date, datetime.time(6, 0))
+        end_bound = datetime.datetime.combine(target_date + datetime.timedelta(days=1), datetime.time(0, 0))
 
-        current_time = datetime.datetime.combine(target_date, start_bound)
-        end_time = datetime.datetime.combine(target_date, end_bound)
+        current_time = start_bound
         slot_duration = datetime.timedelta(minutes=barber.slot_duration_minutes)
 
         slots = []
-        while current_time + slot_duration <= end_time:
-            slot_start = current_time.time()
-            slot_end = (current_time + slot_duration).time()
+        while current_time + slot_duration <= end_bound:
+            slot_start_dt = current_time
+            slot_end_dt = current_time + slot_duration
 
             state = 'available'
             
             # Check appointments
             for appt in appointments:
-                if not (slot_end <= appt.start_time or slot_start >= appt.end_time):
+                a_start = to_datetime(target_date, appt.start_time)
+                a_end = to_datetime(target_date, appt.end_time, is_end=True)
+                if not (slot_end_dt <= a_start or slot_start_dt >= a_end):
                     state = 'booked'
                     break
             
             if state != 'booked':
                 # Check blocked
                 for b in blocked:
-                    if not (slot_end <= b.start_time or slot_start >= b.end_time):
+                    b_start = to_datetime(target_date, b.start_time)
+                    b_end = to_datetime(target_date, b.end_time, is_end=True)
+                    if not (slot_end_dt <= b_start or slot_start_dt >= b_end):
                         state = 'blocked'
                         break
 
             if state == 'available':
-                # Check if it's a normal break or outside schedule bounds
                 is_outside_schedule = False
                 if schedule:
                     if schedule.is_off_day:
                         is_outside_schedule = True
                     elif schedule.start_time and schedule.end_time:
-                        if slot_start < schedule.start_time or slot_end > schedule.end_time:
+                        sched_start = to_datetime(target_date, schedule.start_time)
+                        sched_end = to_datetime(target_date, schedule.end_time, is_end=True)
+                        if sched_end <= sched_start:
+                            sched_end += datetime.timedelta(days=1)
+                        if slot_start_dt < sched_start or slot_end_dt > sched_end:
                             is_outside_schedule = True
-                
+                else:
+                    is_outside_schedule = True
+
                 if is_outside_schedule:
                     state = 'blocked'
                 else:
                     for b in breaks:
-                        if not (slot_end <= b.start_time or slot_start >= b.end_time):
+                        b_start = to_datetime(target_date, b.start_time)
+                        b_end = to_datetime(target_date, b.end_time, is_end=True)
+                        if not (slot_end_dt <= b_start or slot_start_dt >= b_end):
                             state = 'blocked'
                             break
 
             slots.append({
-                'start_time': slot_start.strftime('%H:%M'),
-                'end_time': slot_end.strftime('%H:%M'),
-                'state': state # 'available', 'booked', 'blocked'
+                'start_time': slot_start_dt.strftime('%H:%M'),
+                'end_time': slot_end_dt.strftime('%H:%M'),
+                'state': state
             })
             current_time += slot_duration
 
@@ -275,7 +302,7 @@ class WeeklyScheduleAPIView(APIView):
             schedules.append({
                 'day_of_week': sched.day_of_week,
                 'start_time': sched.start_time.strftime('%H:%M') if sched.start_time else '09:00',
-                'end_time': sched.end_time.strftime('%H:%M') if sched.end_time else '20:00',
+                'end_time': sched.end_time.strftime('%H:%M') if sched.end_time else '23:00',
                 'is_off_day': sched.is_off_day
             })
         return Response({

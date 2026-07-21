@@ -121,7 +121,7 @@ def create_default_schedule(sender, instance, created, **kwargs):
         for i in range(7):
             is_off = (i == 6) # Pazar günü (0=Pazartesi, ..., 6=Pazar)
             start = datetime.time(9, 0) if not is_off else None
-            end = datetime.time(18, 0) if not is_off else None
+            end = datetime.time(23, 0) if not is_off else None
             Schedule.objects.create(
                 barber=instance,
                 day_of_week=i,
