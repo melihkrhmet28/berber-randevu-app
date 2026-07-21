@@ -6,3 +6,5 @@ twilio
 python-dotenv
 Pillow
 django-jazzmin
+gunicorn
+whitenoise
