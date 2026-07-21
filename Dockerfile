@@ -20,8 +20,12 @@ RUN pip install -r requirements.txt
 # Proje dosyalarını kopyala
 COPY . /app/
 
+# Entrypoint betiğini çalıştırılabilir yap
+RUN chmod +x /app/entrypoint.sh
+
 # Portu dışa aç
 EXPOSE 8000
 
 # Uygulamayı başlat
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+
