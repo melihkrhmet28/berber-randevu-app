@@ -188,3 +188,42 @@ body {
     margin: 0 auto 1.5rem;
     font-size: 2rem;
 }
+
+/* Tabs Navigation & Scroll Fix */
+.tabs-nav {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+.tabs-nav::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Edge */
+}
+
+.tab-btn {
+    background: none;
+    border: none;
+    padding: 0.6rem 1rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.tab-btn.active-tab {
+    color: var(--primary-color);
+    border-bottom: 2px solid var(--primary-color);
+}

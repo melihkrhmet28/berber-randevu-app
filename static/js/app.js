@@ -1,31 +1,151 @@
+/**
+ * =============================================================================
+ * APP.JS - SINGLE PAGE APPLICATION (SPA) İSTEMCİ MANTIĞI
+ * =============================================================================
+ * Bu dosya kullanıcının tarayıcısında (Frontend) çalışan ana Javascript kodudur.
+ * Sayfa yenilenmeden URL değişimlerini (Routing) dinler, Django REST API'ye 
+ * HTTP (fetch) istekleri atar ve dönen JSON verilerine göre ekranı dinamik olarak çizer.
+ * =============================================================================
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
     const appElement = document.getElementById('app');
+    
+    // URL yolunu alır (Örn: "/login" -> "login", "/kral-berber" -> "kral-berber")
     const path = window.location.pathname.replace(/^\/|\/$/g, '');
 
-    // Router
+    // =============================================================================
+    // 1. İSTEMCİ YÖNLENDİRİCİSİ (FRONTEND ROUTER)
+    // URL'ye göre ilgili görünüm (render) fonksiyonunu çağırır
+    // =============================================================================
     if (path === 'login') {
         renderLogin();
     } else if (path === 'dashboard') {
         renderDashboard();
+    } else if (path === 'lookup') {
+        renderCustomerLookup();
     } else if (path === '') {
+        // Ana Sayfa Ekranı
         appElement.innerHTML = `
             <div class="card">
                 <div class="header">
-                    <h1>Berber Randevu</h1>
-                    <p>Müşterileriniz size ait özel bağlantı üzerinden randevu alabilirler.</p>
+                    <h1>💈 Berber Randevu Sistemi</h1>
+                    <p>Hızlı ve kolay çevrimiçi randevu alımı & yönetim paneli.</p>
                 </div>
-                <button class="btn" onclick="window.location.href='/login'">Berber Girişi</button>
+                <div style="display:flex; flex-direction:column; gap:1rem;">
+                    <button class="btn" onclick="window.location.href='/lookup'">🔍 Randevu Sorgula & İptal Et</button>
+                    <button class="btn" style="background:transparent; border:1px solid var(--primary-color); color:var(--primary-color);" onclick="window.location.href='/login'">✂️ Berber / İşletme Girişi</button>
+                </div>
             </div>
         `;
     } else {
-        // Assume it's a barber slug for booking
+        // URL boş değilse bunu bir dükkan/berber slug'ı kabul eder (Örn: /kral-berber)
         initBookingFlow(path);
     }
+
+
+    // --- CUSTOMER APPOINTMENT LOOKUP VIEW ---
+    function renderCustomerLookup() {
+        appElement.innerHTML = `
+            <div class="card">
+                <button class="btn" style="background:transparent; color:var(--text-secondary); border:none; text-align:left; padding:0; margin-bottom:1rem; cursor:pointer;" onclick="window.location.href='/'">← Ana Sayfaya Dön</button>
+                <div class="header">
+                    <h1>🔍 Randevu Sorgula</h1>
+                    <p>Telefon numaranızı girerek aktif ve geçmiş randevularınızı listeleyin.</p>
+                </div>
+                <form id="lookup-form" style="margin-bottom:1.5rem;">
+                    <div class="form-group">
+                        <label>Telefon Numaranız</label>
+                        <input type="tel" id="lookup-phone" class="form-control" placeholder="05XXXXXXXXX" required>
+                    </div>
+                    <button type="submit" class="btn" id="lookup-btn">Randevuları Getir</button>
+                </form>
+                <div id="lookup-results"></div>
+            </div>
+        `;
+
+        document.getElementById('lookup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const phone = document.getElementById('lookup-phone').value.trim();
+            const btn = document.getElementById('lookup-btn');
+            const resultsContainer = document.getElementById('lookup-results');
+
+            btn.disabled = true;
+            btn.innerText = 'Aranıyor...';
+            resultsContainer.innerHTML = '<div class="loader">Aranıyor...</div>';
+
+            try {
+                const res = await fetch(`/api/appointments/lookup/?phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Arama yapılamadı.');
+
+                if (data.appointments.length === 0) {
+                    resultsContainer.innerHTML = '<div class="error-message">Bu telefon numarasına ait randevu bulunamadı.</div>';
+                    return;
+                }
+
+                let html = '<div style="display:flex; flex-direction:column; gap:1rem;">';
+                data.appointments.forEach(appt => {
+                    let statusColor = '#10b981';
+                    if (appt.status === 'CANCELLED') statusColor = '#ef4444';
+                    else if (appt.status === 'PENDING') statusColor = '#f59e0b';
+
+                    html += `
+                        <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color); position:relative;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                                <div>
+                                    <strong style="font-size:1.05rem;">${appt.barber_name}</strong>
+                                    ${appt.shop_name ? `<div style="font-size:0.8rem; color:var(--text-secondary);">${appt.shop_name}</div>` : ''}
+                                </div>
+                                <span style="background:${statusColor}22; color:${statusColor}; border:1px solid ${statusColor}; font-size:0.75rem; font-weight:bold; padding:0.2rem 0.5rem; border-radius:var(--radius-sm);">
+                                    ${appt.status_display}
+                                </span>
+                            </div>
+                            <div style="font-size:0.9rem; margin-bottom:0.5rem; color:var(--text-secondary);">
+                                📅 <strong>${appt.date}</strong> | ⏰ <strong>${appt.start_time} - ${appt.end_time}</strong>
+                            </div>
+                            ${appt.services && appt.services.length > 0 ? `<div style="font-size:0.85rem; color:var(--primary-color); margin-bottom:0.5rem;">💇 Hizmetler: ${appt.services.join(', ')}</div>` : ''}
+                            ${appt.total_price && appt.total_price !== '0.00' ? `<div style="font-size:0.9rem; font-weight:bold; color:var(--success-color); margin-bottom:0.5rem;">💰 Toplam: ${appt.total_price} TL</div>` : ''}
+                            
+                            ${appt.status !== 'CANCELLED' ? `
+                                <button class="btn" style="background:none; border:1px solid var(--error-color); color:var(--error-color); padding:0.4rem 0.8rem; font-size:0.85rem; margin-top:0.5rem;" onclick="customerCancelAppt(${appt.id}, '${phone}')">Randevuyu İptal Et</button>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                resultsContainer.innerHTML = html;
+
+            } catch (err) {
+                resultsContainer.innerHTML = `<div class="error-message">${err.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Randevuları Getir';
+            }
+        });
+    }
+
+    window.customerCancelAppt = async function(apptId, phone) {
+        if (!confirm('Bu randevuyu iptal etmek istediğinize emin misiniz?')) return;
+        try {
+            const res = await fetch(`/api/appointments/${apptId}/customer-cancel/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: phone })
+            });
+            if (!res.ok) throw new Error('İptal işlemi başarısız oldu.');
+            alert('Randevunuz başarıyla iptal edildi.');
+            document.getElementById('lookup-form').dispatchEvent(new Event('submit'));
+        } catch (err) {
+            alert(err.message);
+        }
+    };
 
     // --- LOGIN VIEWS ---
     function renderLogin() {
         appElement.innerHTML = `
             <div class="card">
+                <button class="btn" style="background:transparent; color:var(--text-secondary); border:none; text-align:left; padding:0; margin-bottom:1rem; cursor:pointer;" onclick="window.location.href='/'">← Ana Sayfaya Dön</button>
                 <div class="header">
                     <h1>Berber Girişi</h1>
                     <p>Yönetim paneline erişmek için giriş yapın.</p>
@@ -105,10 +225,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const isOwner = data.is_owner;
         const shop = data.shop;
         const shopUrl = shop ? `${window.location.origin}/${shop.slug}` : '';
+        const analytics = data.analytics || { today_count: 0, today_revenue: '0.00', week_revenue: '0.00', total_appts_count: 0 };
         
         appElement.innerHTML = `
-            <div class="card" style="max-width: 800px; width:100%;">
-                <div class="header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="card" style="max-width: 850px; width:100%;">
+                <div class="header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
                     <div style="display:flex; align-items:center; gap: 1rem;">
                         <div style="position:relative; width: 60px; height: 60px;">
                             ${barber.logo ? `<img src="${barber.logo}" alt="Logo" style="width:100%; height:100%; object-fit:cover; border-radius:50%; border:2px solid var(--primary-color);">` 
@@ -116,9 +237,36 @@ document.addEventListener('DOMContentLoaded', () => {
                             <label for="logo-upload" style="position:absolute; bottom:-5px; right:-5px; background:var(--primary-color); color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:1rem; line-height:1;">+</label>
                             <input type="file" id="logo-upload" style="display:none;" accept="image/*" onchange="uploadLogo(this)">
                         </div>
-                        <h1>Hoş Geldin, ${barber.shop_name || barber.username}</h1>
+                        <div>
+                            <h1 style="font-size:1.3rem; margin:0;">Hoş Geldin, ${barber.first_name || barber.shop_name || barber.username}</h1>
+                            <span style="font-size:0.8rem; color:var(--text-secondary);">${isOwner ? '👑 Dükkan Sahibi (Patron)' : '✂️ Berber'}</span>
+                        </div>
                     </div>
                     <button class="btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-secondary); width: auto; padding: 0.5rem 1rem;" onclick="localStorage.removeItem('berber_token'); window.location.href='/login';">Çıkış Yap</button>
+                </div>
+
+                <!-- ANALYTICS CARDS -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:0.75rem; margin-bottom:1.5rem;">
+                    <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color); text-align:center;">
+                        <span style="font-size:1.5rem; display:block;">📅</span>
+                        <div style="font-size:1.3rem; font-weight:bold; color:var(--primary-color); margin:0.25rem 0;">${analytics.today_count}</div>
+                        <div style="font-size:0.75rem; color:var(--text-secondary);">Bugünkü Randevu</div>
+                    </div>
+                    <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color); text-align:center;">
+                        <span style="font-size:1.5rem; display:block;">💵</span>
+                        <div style="font-size:1.3rem; font-weight:bold; color:var(--success-color); margin:0.25rem 0;">${analytics.today_revenue} TL</div>
+                        <div style="font-size:0.75rem; color:var(--text-secondary);">Bugünkü Kazanç</div>
+                    </div>
+                    <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color); text-align:center;">
+                        <span style="font-size:1.5rem; display:block;">📈</span>
+                        <div style="font-size:1.3rem; font-weight:bold; color:#f59e0b; margin:0.25rem 0;">${analytics.week_revenue} TL</div>
+                        <div style="font-size:0.75rem; color:var(--text-secondary);">Bu Haftaki Kazanç</div>
+                    </div>
+                    <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color); text-align:center;">
+                        <span style="font-size:1.5rem; display:block;">📊</span>
+                        <div style="font-size:1.3rem; font-weight:bold; color:var(--text-primary); margin:0.25rem 0;">${analytics.total_appts_count}</div>
+                        <div style="font-size:0.75rem; color:var(--text-secondary);">Toplam Randevular</div>
+                    </div>
                 </div>
                 
                 <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); margin-bottom:1rem; text-align:center; border:1px solid var(--primary-color);">
@@ -127,12 +275,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="btn" style="padding:0.5rem 1rem; width:auto;" onclick="navigator.clipboard.writeText('${shopUrl}'); alert('Link kopyalandı!');">Linki Kopyala</button>
                 </div>
 
-                <div style="display:flex; gap:1rem; margin-bottom:1.5rem; border-bottom: 2px solid var(--border-color);">
-                    <button id="tab-calendar" class="tab-btn active-tab" style="background:none; border:none; padding:0.5rem 1rem; font-weight:bold; color:var(--primary-color); border-bottom:2px solid var(--primary-color); margin-bottom:-2px; cursor:pointer;">Takvim</button>
-                    <button id="tab-schedule" class="tab-btn" style="background:none; border:none; padding:0.5rem 1rem; font-weight:bold; color:var(--text-secondary); cursor:pointer;">Haftalık Şablon</button>
-                    ${isOwner ? `<button id="tab-employees" class="tab-btn" style="background:none; border:none; padding:0.5rem 1rem; font-weight:bold; color:var(--text-secondary); cursor:pointer;">Çalışanlar</button>` : ''}
+                <!-- TABS -->
+                <div class="tabs-nav">
+                    <button id="tab-calendar" class="tab-btn active-tab">Takvim</button>
+                    <button id="tab-services" class="tab-btn">Hizmetlerim</button>
+                    <button id="tab-schedule" class="tab-btn">Haftalık Şablon</button>
+                    ${isOwner ? `<button id="tab-employees" class="tab-btn">Çalışanlar</button>` : ''}
                 </div>
 
+                <!-- TAB 1: CALENDAR -->
                 <div id="view-calendar">
                     <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
                         <div style="flex: 1; min-width: 300px;">
@@ -160,26 +311,61 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
 
+                <!-- TAB 2: SERVICES -->
+                <div id="view-services" style="display:none;">
+                    <div style="display:flex; gap:2rem; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:280px;">
+                            <h3 id="srv-form-title" style="margin-bottom:1rem;">Yeni Hizmet Ekle</h3>
+                            <form id="add-service-form" style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color);">
+                                <input type="hidden" id="srv-edit-id" value="">
+                                <div class="form-group">
+                                    <label>Hizmet Adı</label>
+                                    <input type="text" id="srv-name" class="form-control" placeholder="Örn: Saç Kesimi" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Fiyat (TL)</label>
+                                    <input type="number" id="srv-price" class="form-control" placeholder="300" step="0.01" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Tahmini Süre (Dakika)</label>
+                                    <input type="number" id="srv-duration" class="form-control" value="30" required>
+                                </div>
+                                <div style="display:flex; gap:0.5rem;">
+                                    <button type="submit" class="btn" id="add-srv-btn">Hizmet Ekle</button>
+                                    <button type="button" class="btn" id="cancel-srv-edit-btn" style="display:none; background:var(--border-color);" onclick="resetServiceForm()">İptal</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div style="flex:1; min-width:280px;">
+                            <h3 style="margin-bottom:1rem;">Sunduğunuz Hizmetler</h3>
+                            <div id="services-list"><div class="loader">Yükleniyor...</div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: SCHEDULE -->
                 <div id="view-schedule" style="display:none;">
-                    <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1rem;">Her hafta standart olarak çalıştığınız günleri ve saatleri buradan belirleyin. Belirlediğiniz bu saatlerin dışındaki tüm aralıklar takvimde otomatik olarak kapalı gözükecektir.</p>
+                    <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1rem;">Her hafta standart olarak çalıştığınız günleri ve saatleri buradan belirleyin.</p>
                     <div id="schedule-container">
                         <div class="loader">Yükleniyor...</div>
                     </div>
                 </div>
 
+                <!-- TAB 4: EMPLOYEES (OWNER ONLY) -->
                 ${isOwner ? `
                 <div id="view-employees" style="display:none;">
                     <div style="display:flex; gap:2rem; flex-wrap:wrap;">
-                        <div style="flex:1; min-width:300px;">
-                            <h3 style="margin-bottom:1rem;">Çalışan Ekle</h3>
+                        <div style="flex:1; min-width:280px;">
+                            <h3 id="emp-form-title" style="margin-bottom:1rem;">Çalışan Ekle / Düzenle</h3>
                             <form id="add-employee-form" style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color);">
+                                <input type="hidden" id="emp-edit-id" value="">
                                 <div class="form-group">
                                     <label>Kullanıcı Adı</label>
                                     <input type="text" id="emp-username" class="form-control" required>
                                 </div>
                                 <div class="form-group">
-                                    <label>Şifre</label>
-                                    <input type="password" id="emp-password" class="form-control" required>
+                                    <label>Şifre (Değiştirmek istemiyorsanız boş bırakın)</label>
+                                    <input type="password" id="emp-password" class="form-control">
                                 </div>
                                 <div class="form-group">
                                     <label>Ad</label>
@@ -189,10 +375,17 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <label>Soyad</label>
                                     <input type="text" id="emp-lastname" class="form-control">
                                 </div>
-                                <button type="submit" class="btn" id="add-emp-btn">Ekle</button>
+                                <div class="form-group">
+                                    <label>Telefon</label>
+                                    <input type="tel" id="emp-phone" class="form-control" placeholder="05XXXXXXXXX">
+                                </div>
+                                <div style="display:flex; gap:0.5rem;">
+                                    <button type="submit" class="btn" id="add-emp-btn">Ekle / Güncelle</button>
+                                    <button type="button" class="btn" id="cancel-emp-edit-btn" style="display:none; background:var(--border-color);" onclick="resetEmployeeForm()">İptal</button>
+                                </div>
                             </form>
                         </div>
-                        <div style="flex:1; min-width:300px;">
+                        <div style="flex:1; min-width:280px;">
                             <h3 style="margin-bottom:1rem;">Mevcut Çalışanlar</h3>
                             <div id="employees-list">
                                 <div class="loader">Yükleniyor...</div>
@@ -203,86 +396,126 @@ document.addEventListener('DOMContentLoaded', () => {
                 ` : ''}
             </div>
         `;
-        appElement.style.maxWidth = '800px';
+        appElement.style.maxWidth = '850px';
 
-        // Tabs Logic
-        document.getElementById('tab-calendar').addEventListener('click', (e) => {
-            e.target.style.color = 'var(--primary-color)';
-            e.target.style.borderBottom = '2px solid var(--primary-color)';
-            document.getElementById('tab-schedule').style.color = 'var(--text-secondary)';
-            document.getElementById('tab-schedule').style.borderBottom = 'none';
-            if (isOwner) {
-                document.getElementById('tab-employees').style.color = 'var(--text-secondary)';
-                document.getElementById('tab-employees').style.borderBottom = 'none';
-                document.getElementById('view-employees').style.display = 'none';
+        // Tab Navigation Logic
+        const tabBtns = ['calendar', 'services', 'schedule', ...(isOwner ? ['employees'] : [])];
+        tabBtns.forEach(tName => {
+            const btn = document.getElementById(`tab-${tName}`);
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    tabBtns.forEach(other => {
+                        const b = document.getElementById(`tab-${other}`);
+                        const v = document.getElementById(`view-${other}`);
+                        if (b && v) {
+                            if (other === tName) {
+                                b.classList.add('active-tab');
+                                v.style.display = 'block';
+                            } else {
+                                b.classList.remove('active-tab');
+                                v.style.display = 'none';
+                            }
+                        }
+                    });
+
+                    if (tName === 'services') loadServices(token);
+                    else if (tName === 'schedule') loadWeeklySchedule(token);
+                    else if (tName === 'employees') loadEmployees(token);
+                });
             }
-            document.getElementById('view-calendar').style.display = 'block';
-            document.getElementById('view-schedule').style.display = 'none';
         });
 
-        document.getElementById('tab-schedule').addEventListener('click', (e) => {
-            e.target.style.color = 'var(--primary-color)';
-            e.target.style.borderBottom = '2px solid var(--primary-color)';
-            document.getElementById('tab-calendar').style.color = 'var(--text-secondary)';
-            document.getElementById('tab-calendar').style.borderBottom = 'none';
-            if (isOwner) {
-                document.getElementById('tab-employees').style.color = 'var(--text-secondary)';
-                document.getElementById('tab-employees').style.borderBottom = 'none';
-                document.getElementById('view-employees').style.display = 'none';
-            }
-            document.getElementById('view-calendar').style.display = 'none';
-            document.getElementById('view-schedule').style.display = 'block';
-            loadWeeklySchedule(token);
-        });
-
+        // Employee Form Submit
         if (isOwner) {
-            document.getElementById('tab-employees').addEventListener('click', (e) => {
-                e.target.style.color = 'var(--primary-color)';
-                e.target.style.borderBottom = '2px solid var(--primary-color)';
-                document.getElementById('tab-calendar').style.color = 'var(--text-secondary)';
-                document.getElementById('tab-calendar').style.borderBottom = 'none';
-                document.getElementById('tab-schedule').style.color = 'var(--text-secondary)';
-                document.getElementById('tab-schedule').style.borderBottom = 'none';
-                
-                document.getElementById('view-calendar').style.display = 'none';
-                document.getElementById('view-schedule').style.display = 'none';
-                document.getElementById('view-employees').style.display = 'block';
-                loadEmployees(token);
-            });
-
             document.getElementById('add-employee-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
+                const editId = document.getElementById('emp-edit-id').value;
                 const btn = document.getElementById('add-emp-btn');
                 btn.disabled = true;
-                btn.innerText = 'Ekleniyor...';
+                btn.innerText = 'Kaydediliyor...';
                 
+                const payload = {
+                    username: document.getElementById('emp-username').value,
+                    password: document.getElementById('emp-password').value,
+                    first_name: document.getElementById('emp-firstname').value,
+                    last_name: document.getElementById('emp-lastname').value,
+                    phone_number: document.getElementById('emp-phone').value
+                };
+
                 try {
-                    const res = await fetch('/api/dashboard/employees/', {
-                        method: 'POST',
+                    let url = '/api/dashboard/employees/';
+                    let method = 'POST';
+
+                    if (editId) {
+                        url = `/api/dashboard/employees/${editId}/`;
+                        method = 'PUT';
+                    }
+
+                    const res = await fetch(url, {
+                        method: method,
                         headers: { 
                             'Authorization': `Token ${token}`,
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({
-                            username: document.getElementById('emp-username').value,
-                            password: document.getElementById('emp-password').value,
-                            first_name: document.getElementById('emp-firstname').value,
-                            last_name: document.getElementById('emp-lastname').value
-                        })
+                        body: JSON.stringify(payload)
                     });
                     const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'Çalışan eklenemedi.');
-                    alert('Çalışan eklendi!');
-                    document.getElementById('add-employee-form').reset();
+                    if (!res.ok) throw new Error(data.error || 'İşlem başarısız oldu.');
+                    alert(editId ? 'Çalışan bilgileri güncellendi!' : 'Yeni çalışan eklendi!');
+                    resetEmployeeForm();
                     loadEmployees(token);
                 } catch(err) {
                     alert(err.message);
                 } finally {
                     btn.disabled = false;
-                    btn.innerText = 'Ekle';
+                    btn.innerText = 'Ekle / Güncelle';
                 }
             });
         }
+
+        // Service Form Submit
+        document.getElementById('add-service-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('srv-edit-id').value;
+            const btn = document.getElementById('add-srv-btn');
+            btn.disabled = true;
+            btn.innerText = 'Kaydediliyor...';
+
+            const payload = {
+                name: document.getElementById('srv-name').value,
+                price: parseFloat(document.getElementById('srv-price').value),
+                duration_minutes: parseInt(document.getElementById('srv-duration').value)
+            };
+
+            try {
+                let url = '/api/dashboard/services/';
+                let method = 'POST';
+
+                if (editId) {
+                    url = `/api/dashboard/services/${editId}/`;
+                    method = 'PUT';
+                }
+
+                const res = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Authorization': `Token ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'İşlem başarısız oldu.');
+                alert(editId ? 'Hizmet güncellendi!' : 'Hizmet eklendi!');
+                resetServiceForm();
+                loadServices(token);
+            } catch(err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = editId ? 'Güncelle' : 'Hizmet Ekle';
+            }
+        });
 
         const dashDatePicker = document.getElementById('dash-date-picker');
         dashDatePicker.addEventListener('change', (e) => {
@@ -293,23 +526,81 @@ document.addEventListener('DOMContentLoaded', () => {
         loadDashboardSlots(dashDatePicker.value, token);
     }
 
-    window.uploadLogo = async function(input) {
-        if (!input.files || input.files.length === 0) return;
-        const file = input.files[0];
-        const token = localStorage.getItem('berber_token');
+    window.resetEmployeeForm = function() {
+        document.getElementById('emp-edit-id').value = '';
+        document.getElementById('emp-username').disabled = false;
+        document.getElementById('add-employee-form').reset();
+        document.getElementById('emp-form-title').innerText = 'Çalışan Ekle';
+        document.getElementById('cancel-emp-edit-btn').style.display = 'none';
+    };
+
+    window.resetServiceForm = function() {
+        document.getElementById('srv-edit-id').value = '';
+        document.getElementById('add-service-form').reset();
+        document.getElementById('srv-form-title').innerText = 'Yeni Hizmet Ekle';
+        document.getElementById('add-srv-btn').innerText = 'Hizmet Ekle';
+        document.getElementById('cancel-srv-edit-btn').style.display = 'none';
+    };
+
+    window.editService = function(srv) {
+        document.getElementById('srv-edit-id').value = srv.id;
+        document.getElementById('srv-name').value = srv.name;
+        document.getElementById('srv-price').value = srv.price;
+        document.getElementById('srv-duration').value = srv.duration_minutes;
         
-        const formData = new FormData();
-        formData.append('logo', file);
-        
+        document.getElementById('srv-form-title').innerText = `Hizmeti Düzenle: ${srv.name}`;
+        document.getElementById('add-srv-btn').innerText = 'Güncelle';
+        document.getElementById('cancel-srv-edit-btn').style.display = 'inline-block';
+    };
+
+    async function loadServices(token) {
+        const container = document.getElementById('services-list');
+        container.innerHTML = '<div class="loader">Yükleniyor...</div>';
         try {
-            const res = await fetch('/api/dashboard/logo/', {
-                method: 'POST',
-                headers: { 'Authorization': `Token ${token}` },
-                body: formData
+            const res = await fetch('/api/dashboard/services/', {
+                headers: { 'Authorization': `Token ${token}` }
             });
-            if (!res.ok) throw new Error('Logo yüklenemedi.');
-            alert('Logo başarıyla güncellendi!');
-            window.location.reload();
+            if (!res.ok) throw new Error('Hizmetler alınamadı.');
+            const data = await res.json();
+
+            if (data.services.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-secondary); font-size:0.875rem;">Henüz hizmet eklemediniz.</p>';
+                return;
+            }
+
+            let html = '<div style="display:flex; flex-direction:column; gap:0.75rem;">';
+            data.services.forEach(srv => {
+                html += `
+                    <div style="background:var(--bg-color); padding:0.875rem; border-radius:var(--radius-sm); border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <strong style="display:block; font-size:1rem;">${srv.name}</strong>
+                            <span style="font-size:0.85rem; color:var(--success-color); font-weight:bold;">${srv.price} TL</span>
+                            <span style="font-size:0.8rem; color:var(--text-secondary); margin-left:8px;">⏱️ ${srv.duration_minutes} dk</span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button onclick='editService(${JSON.stringify(srv)})' style="background:none; border:1px solid var(--primary-color); color:var(--primary-color); padding:0.3rem 0.6rem; border-radius:var(--radius-sm); font-size:0.8rem; cursor:pointer;">Düzenle</button>
+                            <button onclick="deleteService(${srv.id})" style="background:none; border:1px solid var(--error-color); color:var(--error-color); padding:0.3rem 0.6rem; border-radius:var(--radius-sm); font-size:0.8rem; cursor:pointer;">Sil</button>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        } catch(err) {
+            container.innerHTML = `<div class="error-message">${err.message}</div>`;
+        }
+    }
+
+    window.deleteService = async function(id) {
+        if (!confirm('Bu hizmeti silmek istediğinize emin misiniz?')) return;
+        const token = localStorage.getItem('berber_token');
+        try {
+            const res = await fetch(`/api/dashboard/services/${id}/`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Token ${token}` }
+            });
+            if (!res.ok) throw new Error('Silinemedi.');
+            loadServices(token);
         } catch(err) {
             alert(err.message);
         }
@@ -331,13 +622,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            let html = '<div style="display:flex; flex-direction:column; gap:1rem;">';
+            let html = '<div style="display:flex; flex-direction:column; gap:0.75rem;">';
             data.employees.forEach(emp => {
                 html += `
-                    <div style="background:var(--bg-color); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+                    <div style="background:var(--bg-color); padding:0.875rem; border-radius:var(--radius-sm); border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
                         <div>
-                            <strong>${emp.first_name} ${emp.last_name || ''}</strong>
-                            <div style="font-size:0.875rem; color:var(--text-secondary);">@${emp.username}</div>
+                            <strong style="display:block; font-size:1rem;">${emp.first_name} ${emp.last_name || ''}</strong>
+                            <div style="font-size:0.8rem; color:var(--text-secondary);">@${emp.username} ${emp.phone_number ? '| 📞 ' + emp.phone_number : ''}</div>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button onclick='editEmployee(${JSON.stringify(emp)})' style="background:none; border:1px solid var(--primary-color); color:var(--primary-color); padding:0.3rem 0.6rem; border-radius:var(--radius-sm); font-size:0.8rem; cursor:pointer;">Düzenle</button>
+                            <button onclick="deleteEmployee(${emp.id})" style="background:none; border:1px solid var(--error-color); color:var(--error-color); padding:0.3rem 0.6rem; border-radius:var(--radius-sm); font-size:0.8rem; cursor:pointer;">Sil</button>
                         </div>
                     </div>
                 `;
@@ -349,10 +644,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- DRAG TO SELECT LOGIC ---
+    window.editEmployee = function(emp) {
+        document.getElementById('emp-edit-id').value = emp.id;
+        document.getElementById('emp-username').value = emp.username;
+        document.getElementById('emp-username').disabled = true;
+        document.getElementById('emp-firstname').value = emp.first_name || '';
+        document.getElementById('emp-lastname').value = emp.last_name || '';
+        document.getElementById('emp-phone').value = emp.phone_number || '';
+        document.getElementById('emp-password').value = '';
+        
+        document.getElementById('emp-form-title').innerText = `Çalışan Düzenle: @${emp.username}`;
+        document.getElementById('cancel-emp-edit-btn').style.display = 'inline-block';
+    };
+
+    window.deleteEmployee = async function(id) {
+        if (!confirm('Bu çalışanı silmek istediğinize emin misiniz?')) return;
+        const token = localStorage.getItem('berber_token');
+        try {
+            const res = await fetch(`/api/dashboard/employees/${id}/`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Token ${token}` }
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Silinemedi.');
+            loadEmployees(token);
+        } catch(err) {
+            alert(err.message);
+        }
+    };
+
+    // --- DRAG TO SELECT & DASHBOARD SLOTS LOGIC ---
     let isDragging = false;
-    let dragAction = null; // 'block' or 'unblock'
-    let pendingUpdates = new Map(); // key: start_time, value: {start_time, end_time, action}
+    let dragAction = null;
+    let pendingUpdates = new Map();
 
     document.addEventListener('mouseup', async () => {
         if (isDragging) {
@@ -379,10 +703,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ updates: updates })
             });
             if (!res.ok) throw new Error('İşlem başarısız');
-            // Background update success
         } catch(err) {
             console.error(err);
-            // Revert changes on error
             loadDashboardSlots(dateStr, token);
         }
     }
@@ -453,17 +775,16 @@ document.addEventListener('DOMContentLoaded', () => {
             
             apptListContainer.innerHTML = apptHtml || '<p style="color:var(--text-secondary); font-size:0.875rem;">Bu tarihte randevu bulunmuyor.</p>';
 
-            // Attach drag-to-select events
             const buttons = container.querySelectorAll('.slot-btn:not([disabled])');
             buttons.forEach(btn => {
                 btn.addEventListener('mousedown', (e) => {
-                    e.preventDefault(); // Prevent text selection
+                    e.preventDefault();
                     isDragging = true;
                     const state = btn.getAttribute('data-state');
                     dragAction = (state === 'available') ? 'block' : 'unblock';
                     toggleLocalButtonState(btn);
                 });
-                btn.addEventListener('mouseenter', (e) => {
+                btn.addEventListener('mouseenter', () => {
                     if (isDragging) {
                         toggleLocalButtonState(btn, true);
                     }
@@ -477,11 +798,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function toggleLocalButtonState(btn, enforceAction = false) {
         const state = btn.getAttribute('data-state');
-        // If enforceAction is true, only change if the button's state is opposite of dragAction
         if (enforceAction) {
             if ((dragAction === 'block' && state === 'blocked') || 
                 (dragAction === 'unblock' && state === 'available')) {
-                return; // Already in target state
+                return;
             }
         }
 
@@ -502,10 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.cancelAppointment = async function(id, dateStr) {
-        if (!confirm('Bu randevuyu iptal etmek istediğinize emin misiniz?')) {
-            return;
-        }
-        
+        if (!confirm('Bu randevuyu iptal etmek istediğinize emin misiniz?')) return;
         const token = localStorage.getItem('berber_token');
         try {
             const res = await fetch(`/api/appointments/${id}/cancel/`, {
@@ -600,7 +917,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     if (!postRes.ok) throw new Error('Kaydedilemedi');
                     alert('Haftalık şablon başarıyla kaydedildi!');
-                    // Refresh current calendar date if we go back
                     const dateStr = document.getElementById('dash-date-picker').value;
                     loadDashboardSlots(dateStr, token);
                 } catch(err) {
@@ -621,13 +937,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const form = document.getElementById('schedule-form');
         form[`start_${day}`].disabled = isOff;
         form[`end_${day}`].disabled = isOff;
-    }
+    };
 
 
-    // --- BOOKING FLOW VIEWS ---
+    // --- BOOKING FLOW VIEWS (WITH SERVICES SELECTION) ---
     function initBookingFlow(shopSlug) {
         let selectedDate = new Date().toISOString().split('T')[0];
         let selectedSlot = null;
+        let selectedServices = [];
         let shopData = null;
         let barberData = null;
         let availableSlots = [];
@@ -731,11 +1048,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         customer_phone: phone,
                         date: selectedDate,
                         start_time: selectedSlot.start_time,
-                        end_time: selectedSlot.end_time
+                        end_time: selectedSlot.end_time,
+                        services: selectedServices
                     })
                 });
 
-                if (!res.ok) throw new Error('Randevu oluşturulamadı. Lütfen tekrar deneyin.');
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || 'Randevu oluşturulamadı. Lütfen tekrar deneyin.');
+                }
                 
                 appElement.innerHTML = `
                     <div class="card">
@@ -748,6 +1069,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 Saat: <strong>${selectedSlot.start_time}</strong><br>
                                 Berber: <strong>${barberData.shop_name || barberData.username}</strong>
                             </p>
+                            <button class="btn" style="margin-top:1.5rem;" onclick="window.location.href='/'">Ana Sayfaya Dön</button>
                         </div>
                     </div>
                 `;
@@ -755,6 +1077,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert(error.message);
                 submitBtn.disabled = false;
                 submitBtn.innerText = 'Randevuyu Onayla';
+                fetchSlots(selectedDate);
             }
         };
 
@@ -785,6 +1108,34 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         const renderBookingForm = () => {
+            const services = barberData.services || [];
+            
+            let servicesHtml = '';
+            if (services.length > 0) {
+                servicesHtml = `
+                    <div class="form-group" style="margin-bottom:1.5rem;">
+                        <label>Hizmet Seçimi (Opsiyonel)</label>
+                        <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                `;
+                services.forEach(srv => {
+                    servicesHtml += `
+                        <label style="background:var(--bg-color); padding:0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; cursor:pointer;">
+                            <div>
+                                <input type="checkbox" class="srv-checkbox" value="${srv.id}" data-price="${srv.price}">
+                                <span style="margin-left:8px; font-weight:500;">${srv.name}</span>
+                                <span style="font-size:0.8rem; color:var(--text-secondary); margin-left:5px;">(${srv.duration_minutes} dk)</span>
+                            </div>
+                            <strong style="color:var(--success-color);">${srv.price} TL</strong>
+                        </label>
+                    `;
+                });
+                servicesHtml += `
+                        </div>
+                        <div id="total-price-badge" style="margin-top:0.75rem; text-align:right; font-weight:bold; font-size:1.05rem; color:var(--primary-color);">Toplam Tutar: 0.00 TL</div>
+                    </div>
+                `;
+            }
+
             appElement.innerHTML = `
                 <div class="card">
                     <button class="btn" style="background:transparent; color:var(--text-secondary); border:none; text-align:left; padding:0; margin-bottom:1rem; cursor:pointer;" onclick="window.location.reload();">← Geri Dön</button>
@@ -795,77 +1146,43 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p>Randevunuzu oluşturmak için tarih ve saat seçin.</p>
                     </div>
                     <form id="booking-form">
+                        ${servicesHtml}
                         <div class="form-group">
                             <label>Tarih Seçin</label>
                             <input type="date" id="date-picker" class="form-control" value="${selectedDate}" min="${new Date().toISOString().split('T')[0]}">
                         </div>
-                        
                         <div class="form-group">
-                            <label>Uygun Saatler</label>
+                            <label>Saat Seçin</label>
                             <div id="slots-container"></div>
                         </div>
-
                         <div class="form-group">
                             <label>Adınız Soyadınız</label>
-                            <input type="text" id="customer_name" class="form-control" placeholder="Ad Soyad" required>
+                            <input type="text" id="customer_name" class="form-control" placeholder="Ahmet Yılmaz" required>
                         </div>
-
                         <div class="form-group">
                             <label>Telefon Numaranız</label>
-                            <input type="tel" id="customer_phone" class="form-control" placeholder="(05XX) XXX XX XX" required>
+                            <input type="tel" id="customer_phone" class="form-control" placeholder="05XXXXXXXXX" required>
                         </div>
-
-                        <button type="submit" class="btn" id="submit-btn">Randevuyu Onayla</button>
+                        <button type="submit" class="btn" id="submit-btn" style="margin-top: 1rem;">Randevuyu Onayla</button>
                     </form>
                 </div>
             `;
+
+            // Calculate total price on checkbox toggle
+            const checkboxes = document.querySelectorAll('.srv-checkbox');
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', () => {
+                    selectedServices = Array.from(document.querySelectorAll('.srv-checkbox:checked')).map(c => parseInt(c.value));
+                    const total = Array.from(document.querySelectorAll('.srv-checkbox:checked')).reduce((acc, c) => acc + parseFloat(c.dataset.price), 0);
+                    const badge = document.getElementById('total-price-badge');
+                    if (badge) badge.innerText = `Toplam Tutar: ${total.toFixed(2)} TL`;
+                });
+            });
 
             document.getElementById('date-picker').addEventListener('change', (e) => {
                 selectedDate = e.target.value;
                 selectedSlot = null;
                 fetchSlots(selectedDate);
-            });
-
-            const phoneInput = document.getElementById('customer_phone');
-            
-            phoneInput.addEventListener('focus', (e) => {
-                if (e.target.value.length === 0) {
-                    e.target.value = '(05';
-                }
-            });
-
-            phoneInput.addEventListener('blur', (e) => {
-                if (e.target.value === '(05') {
-                    e.target.value = '';
-                }
-            });
-
-            phoneInput.addEventListener('input', (e) => {
-                let val = e.target.value.replace(/\D/g, ''); 
-                
-                if (!val.startsWith('05')) {
-                    if (val.startsWith('0')) val = '05' + val.substring(1);
-                    else if (val.startsWith('5')) val = '0' + val;
-                    else val = '05' + val;
-                }
-                
-                if (val.length > 11) val = val.substring(0, 11);
-                
-                let formatted = '';
-                if (val.length > 0) {
-                    formatted = '(' + val.substring(0, 4);
-                }
-                if (val.length >= 5) formatted += ') ' + val.substring(4, 7);
-                if (val.length >= 8) formatted += ' ' + val.substring(7, 9);
-                if (val.length >= 10) formatted += ' ' + val.substring(9, 11);
-                
-                e.target.value = formatted;
-            });
-
-            phoneInput.addEventListener('keydown', (e) => {
-                if ((e.key === 'Backspace' || e.key === 'Delete') && e.target.value.length <= 3) {
-                    e.preventDefault();
-                }
             });
 
             document.getElementById('booking-form').addEventListener('submit', submitAppointment);

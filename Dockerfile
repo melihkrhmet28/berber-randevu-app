@@ -1,31 +1,40 @@
+# =============================================================================
+# DOCKERFILE (Konteyner İmaj Tarifi)
+# =============================================================================
+# Uygulamanın hangi işletim sisteminde, hangi Python sürümünde ve hangi 
+# bağımlılıklarla çalışacağını adım adım tarif eden imaj dosyasıdır.
+# =============================================================================
+
+# 1. Taban İmaj: Resmi Python 3.11 Linux imajı kullanılır
 FROM python:3.11
 
-# Ortam değişkenlerini ayarla
+# 2. Python Ortam Değişkenleri
+# PYTHONDONTWRITEBYTECODE 1 -> .pyc derleme dosyalarının oluşturulmasını engeller
 ENV PYTHONDONTWRITEBYTECODE 1
+# PYTHONUNBUFFERED 1 -> Konsol çıktılarını anında ekrana basar (Loglama için önemlidir)
 ENV PYTHONUNBUFFERED 1
 
-# Çalışma dizinini ayarla
+# 3. Konteyner İçindeki Çalışma Dizinini Belirle (/app)
 WORKDIR /app
 
-# Gerekli sistem paketlerini kur (psycopg2 ve Pillow için gerekebilir)
+# 4. Gerekli Sistem Bağımlılıklarını Kur (C++ Derleyici ve Veritabanı Başlık Dosyaları)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Gereksinimleri kopyala ve kur
+# 5. Proje Bağımlılıklarını Kopyala ve Kur (requirements.txt)
 COPY requirements.txt /app/
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Proje dosyalarını kopyala
+# 6. Projenin Tüm Kodlarını Konteyner İçine Kopyala
 COPY . /app/
 
-# Entrypoint betiğini çalıştırılabilir yap
+# 7. Başlangıç Betiğine Çalıştırma İzni Ver
 RUN chmod +x /app/entrypoint.sh
 
-# Portu dışa aç
+# 8. Konteynerin 8000 Portunu Dış Dünyaya Açar
 EXPOSE 8000
 
-# Uygulamayı başlat
+# 9. Konteyner Başladığında Çalıştırılacak Komut
 ENTRYPOINT ["/app/entrypoint.sh"]
-

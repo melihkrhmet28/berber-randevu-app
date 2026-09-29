@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import Barber, Shop, Schedule, Appointment
+from .models import Barber, Shop, Schedule, Appointment, Service
 
 class BarberAdmin(UserAdmin):
     fieldsets = UserAdmin.fieldsets + (
@@ -58,7 +58,14 @@ from django.contrib.auth.models import Group
 
 admin.site.unregister(Group)
 
+class ServiceAdmin(admin.ModelAdmin):
+    list_display = ['name', 'barber', 'price', 'duration_minutes']
+    list_filter = ['barber']
+    search_fields = ['name', 'barber__username']
+
 admin.site.register(Barber, BarberAdmin)
 admin.site.register(Shop, ShopAdmin)
 admin.site.register(Schedule, ScheduleAdmin)
 admin.site.register(Appointment, AppointmentAdmin)
+admin.site.register(Service, ServiceAdmin)
+

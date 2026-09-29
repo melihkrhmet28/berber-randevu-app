@@ -1,11 +1,15 @@
-version: '3.8'
+# =============================================================================
+# DOCKER COMPOSE CONFIGURATION
+# =============================================================================
+# Tek bir komutla (docker compose up) projeyi ayağa kaldırmayı sağlayan orkestrasyon dosyasıdır.
+# =============================================================================
 
 services:
   web:
-    build: .
+    build: .                 # Bulunduğu dizindeki Dockerfile'ı kullanarak imajı derler
     ports:
-      - "8000:8000"
+      - "8000:8000"          # Bilgisayarınızın 8000 portunu konteynerin 8000 portuna bağlar
     volumes:
-      - .:/app
+      - .:/app               # Yerel kod değişikliklerinin anında konteyner içinde güncellenmesini sağlar (Hot Reloading)
     env_file:
-      - .env
+      - .env                 # Ortam değişkenlerini .env dosyasından otomatik okur
